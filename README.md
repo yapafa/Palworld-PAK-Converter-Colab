@@ -1,5 +1,8 @@
 # Palworld PAK Converter (Google Colab Version)
 
+<img width="893" height="447" alt="截圖 2026-08-13 凌晨1 13 27" src="https://github.com/user-attachments/assets/0828d40f-d0b3-41e4-bd5f-c25380ab9d53" />
+
+
 [English](#english) | [中文](#中文)
 
 ---
