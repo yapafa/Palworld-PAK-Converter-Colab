@@ -1,0 +1,114 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Palworld PAK Converter (Mac / Linux / Colab 版)
+重現 SergioAndre 的 Palworld PAK Converter .bat 腳本邏輯。
+使用 retoc 將 Steam 版本的 Legacy .pak 轉檔為 Game Pass / Xbox 適用格式 (.pak, .ucas, .utoc)。
+"""
+
+import os
+import requests
+import tarfile
+import subprocess
+
+def main():
+    # =========================================================================
+    # 步驟 1：下載與準備 Linux 版的 retoc 執行檔
+    # =========================================================================
+    print("1. 正在從 GitHub 下載最新版 retoc 轉檔工具...")
+    github_api_url = "https://api.github.com/repos/trumank/retoc/releases/latest"
+    
+    # 存取 GitHub API 取得最新 Release 資訊
+    res = requests.get(github_api_url).json()
+
+    download_url = None
+    archive_name = "retoc_linux.tar.xz"
+
+    # 搜尋適合 Linux x86_64 / amd64 架構的發行包
+    for asset in res.get('assets', []):
+        asset_name = asset['name']
+        if 'linux' in asset_name.lower() and ('x86_64' in asset_name.lower() or 'amd64' in asset_name.lower()):
+            download_url = asset['browser_download_url']
+            archive_name = asset_name
+            break
+
+    if not download_url:
+        raise Exception("❌ 無法取得 Linux 版 retoc 下載連結，請檢查網路狀態或 GitHub API 限流。")
+
+    # 下載壓縮檔
+    response = requests.get(download_url)
+    with open(archive_name, 'wb') as f:
+        f.write(response.content)
+
+    # 解壓縮檔案 (指定 filter='tar' 可避免 Python 3.12+ 的 DeprecationWarning 警告)
+    with tarfile.open(archive_name, 'r:*') as tar:
+        tar.extractall('.', filter='tar')
+
+    # 在解壓後的目錄中尋找 retoc 執行檔
+    retoc_bin = None
+    for root, dirs, files in os.walk('.'):
+        for file in files:
+            if (file == 'retoc' or file == 'retoc_cli') and not file.endswith(('.tar.xz', '.zip', '.py')):
+                retoc_bin = os.path.join(root, file)
+                break
+
+    if not retoc_bin:
+        raise FileNotFoundError("❌ 找不到 retoc 執行檔，請檢查解壓縮結果。")
+
+    # 賦予 retoc 可執行權限 (chmod +x)
+    os.chmod(retoc_bin, 0o755)
+
+    # 確保 Input 與 Output 工作目錄存在
+    os.makedirs("Input", exist_ok=True)
+    os.makedirs("Output", exist_ok=True)
+
+    # =========================================================================
+    # 步驟 2：搜尋 Input 資料夾並批量執行轉檔
+    # =========================================================================
+    input_files = [f for f in os.listdir('Input') if f.endswith('.pak')]
+
+    if not input_files:
+        print("\n❌ 警告：Input 資料夾內未偵測到任何 .pak 檔案！")
+        print("   請將 Steam 版的 .pak Mod 放入 'Input' 資料夾後重新執行。")
+        return
+
+    print("\n" + "=" * 60)
+    print(f"📦 偵測到 {len(input_files)} 個待轉換檔案: {input_files}")
+    print("=" * 60)
+
+    for pak in input_files:
+        in_path = os.path.join('Input', pak)
+        
+        # 【關鍵點 1】：指定輸出目標為 .utoc 副檔名
+        # retoc 接收到 .utoc 作為目標時，會自動產出完整 Zen 格式所需的 (.pak, .ucas, .utoc)
+        filename_without_ext = os.path.splitext(pak)[0]
+        out_utoc_path = os.path.join('Output', f"{filename_without_ext}.utoc")
+        
+        print(f"\n🚀 正在轉換: {pak}")
+        
+        # 【關鍵點 2】：強制指定引擎版本為 --version UE5_1
+        # 這是相容 Game Pass 平台 Zen 封包架構的最佳萬用引擎版本設定
+        cmd = [
+            retoc_bin,
+            "to-zen",
+            in_path,
+            out_utoc_path,
+            "--version", "UE5_1"
+        ]
+        
+        # 執行轉換命令並捕獲輸出紀錄
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        
+        if result.returncode == 0:
+            print("  └─ ✅ [OK] 轉換成功！")
+        else:
+            print("  └─ ❌ [FAILED] 轉換失敗！")
+            if result.stderr:
+                print(f"     錯誤細節: {result.stderr.strip()}")
+        print("-" * 60)
+
+    print("\n🎉 轉檔作業完成！請至 'Output' 資料夾下載以下轉換好的檔案 (.pak, .ucas, .utoc)：")
+    print(os.listdir('Output'))
+
+if __name__ == "__main__":
+    main()
