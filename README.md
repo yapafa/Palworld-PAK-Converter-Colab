@@ -1,5 +1,3 @@
-# Palworld-PAK-Converter-Colab
-
 # Palworld PAK Converter (Google Colab Version)
 
 [English](#english) | [中文](#中文)
