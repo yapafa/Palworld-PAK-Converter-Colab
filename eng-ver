@@ -1,0 +1,114 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Palworld PAK Converter (Mac / Linux / Colab Version)
+Replicates the logic of SergioAndre's Palworld PAK Converter batch script.
+Converts Steam Legacy .pak files into PC Game Pass / Xbox compatible Zen assets (.pak, .ucas, .utoc) using retoc.
+"""
+
+import os
+import requests
+import tarfile
+import subprocess
+
+def main():
+    # =========================================================================
+    # Step 1: Download and prepare the Linux binary for retoc
+    # =========================================================================
+    print("1. Fetching latest retoc release from GitHub...")
+    github_api_url = "https://api.github.com/repos/trumank/retoc/releases/latest"
+    
+    # Fetch latest release data via GitHub API
+    res = requests.get(github_api_url).json()
+
+    download_url = None
+    archive_name = "retoc_linux.tar.xz"
+
+    # Locate asset corresponding to Linux x86_64 / amd64 architecture
+    for asset in res.get('assets', []):
+        asset_name = asset['name']
+        if 'linux' in asset_name.lower() and ('x86_64' in asset_name.lower() or 'amd64' in asset_name.lower()):
+            download_url = asset['browser_download_url']
+            archive_name = asset_name
+            break
+
+    if not download_url:
+        raise Exception("❌ Failed to obtain download URL for retoc. Check network or API rate limits.")
+
+    # Download binary archive
+    response = requests.get(download_url)
+    with open(archive_name, 'wb') as f:
+        f.write(response.content)
+
+    # Extract archive (filter='tar' prevents DeprecationWarning on Python 3.12+)
+    with tarfile.open(archive_name, 'r:*') as tar:
+        tar.extractall('.', filter='tar')
+
+    # Locate retoc executable inside extracted contents
+    retoc_bin = None
+    for root, dirs, files in os.walk('.'):
+        for file in files:
+            if (file == 'retoc' or file == 'retoc_cli') and not file.endswith(('.tar.xz', '.zip', '.py')):
+                retoc_bin = os.path.join(root, file)
+                break
+
+    if not retoc_bin:
+        raise FileNotFoundError("❌ Could not find retoc executable after extraction.")
+
+    # Grant execution permissions to retoc binary (chmod +x)
+    os.chmod(retoc_bin, 0o755)
+
+    # Ensure Input and Output directories exist
+    os.makedirs("Input", exist_ok=True)
+    os.makedirs("Output", exist_ok=True)
+
+    # =========================================================================
+    # Step 2: Scan Input directory and batch-convert .pak files
+    # =========================================================================
+    input_files = [f for f in os.listdir('Input') if f.endswith('.pak')]
+
+    if not input_files:
+        print("\n❌ Warning: No .pak files detected in the 'Input' folder!")
+        print("   Please place Steam version .pak mods into 'Input' and rerun the script.")
+        return
+
+    print("\n" + "=" * 60)
+    print(f"📦 Found {len(input_files)} file(s) to convert: {input_files}")
+    print("=" * 60)
+
+    for pak in input_files:
+        in_path = os.path.join('Input', pak)
+        
+        # [KEY POINT 1]: Target output path MUST use the .utoc extension.
+        # When retoc receives .utoc as output, it generates the full Zen set (.pak, .ucas, .utoc).
+        filename_without_ext = os.path.splitext(pak)[0]
+        out_utoc_path = os.path.join('Output', f"{filename_without_ext}.utoc")
+        
+        print(f"\n🚀 Converting: {pak}")
+        
+        # [KEY POINT 2]: Enforce asset schema version to --version UE5_1
+        # UE5_1 is the most stable and compatible schema target for Game Pass Zen containers.
+        cmd = [
+            retoc_bin,
+            "to-zen",
+            in_path,
+            out_utoc_path,
+            "--version", "UE5_1"
+        ]
+        
+        # Execute retoc command and capture output
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        
+        if result.returncode == 0:
+            print("  └─ ✅ [OK] Conversion successful!")
+        else:
+            print("  └─ ❌ [FAILED] Conversion failed!")
+            if result.stderr:
+                print(f"     Error details: {result.stderr.strip()}")
+        print("-" * 60)
+
+    print("\n🎉 Conversion completed! Check 'Output' directory for generated files (.pak, .ucas, .utoc):")
+    print(os.listdir('Output'))
+
+if __name__ == "__main__":
+    main()
